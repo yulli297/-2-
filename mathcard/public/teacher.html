@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>교사 관리 화면</title>
+<style>
+  :root{--bg:#f5f4f9;--card:#fff;--ink:#222;--muted:#666;--line:#ddd;--accent:#5a3fe0;--ok:#1f8a4c;--bad:#c0392b}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif}
+  .wrap{max-width:1200px;margin:0 auto;padding:16px}
+  h1{font-size:22px;margin:4px 0 14px}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  input{font-size:15px;padding:7px 10px;border:1px solid var(--line);border-radius:8px}
+  button{font-size:14px;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.danger{color:var(--bad);border-color:#e7b3ad}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left}
+  th{background:#faf9fd;font-weight:600}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#bbb;margin-right:4px}.dot.on{background:var(--ok)}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .muted{color:var(--muted);font-size:13px}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;background:#eee;font-size:12px}
+  .grid2{display:grid;grid-template-columns:2fr 1fr;gap:14px} @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>수학 카드 모험 · 교사 관리 화면</h1>
+  <div class="box" id="login">
+    <div class="row"><input id="pw" type="password" placeholder="관리 비밀번호"><button class="primary" id="lg">로그인</button></div>
+  </div>
+  <div id="main" style="display:none">
+    <div class="box">
+      <div class="row"><b>반 만들기</b><input id="code" placeholder="반 코드 (예: 6-1)" style="width:140px"><input id="size" type="number" min="1" max="40" value="24" style="width:80px"> 명
+        <button class="primary" id="mk">만들기</button><span class="muted">학생은 반 코드를 고른 뒤 자기 번호를 눌러 들어와요.</span></div>
+    </div>
+    <div class="tabs" id="tabs"></div>
+    <div id="cls"></div>
+  </div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io(); const $ = s => document.querySelector(s);
+let st = null, cur = null, authed = false;
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function login(pw){ socket.emit('tLogin', { pw }, r => { if (r.ok) { authed = true; try{sessionStorage.setItem('tpw', pw)}catch(e){} $('#login').style.display='none'; $('#main').style.display='block'; } else alert('비밀번호가 달라요.'); }); }
+$('#lg').onclick = () => login($('#pw').value);
+$('#pw').onkeydown = e => { if (e.key === 'Enter') login($('#pw').value); };
+socket.on('connect', () => { let pw=null; try{pw=sessionStorage.getItem('tpw')}catch(e){} if (pw) login(pw); });
+$('#mk').onclick = () => socket.emit('tCreate', { code: $('#code').value, size: $('#size').value }, r => { if (!r.ok) alert(r.msg); else { cur = $('#code').value.trim(); $('#code').value=''; } });
+socket.on('tState', s => { st = s; draw(); });
+function act(ev, data, confirmMsg){ if (confirmMsg && !confirm(confirmMsg)) return; socket.emit(ev, data, r => { if (r && r.ok === false && r.msg) alert(r.msg); }); }
+function draw(){
+  if (!st) return;
+  if (!cur || !st.classes.find(c => c.code === cur)) cur = st.classes[0] && st.classes[0].code;
+  $('#tabs').innerHTML = st.classes.map(c => `<button class="${c.code===cur?'on':''}" data-c="${esc(c.code)}">${esc(c.code)} (${c.students.filter(s=>s.online).length}/${c.size})</button>`).join('') || '<span class="muted">아직 만든 반이 없어요.</span>';
+  document.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { cur = b.dataset.c; draw(); });
+  const c = st.classes.find(x => x.code === cur); if (!c) { $('#cls').innerHTML=''; return; }
+  $('#cls').innerHTML = `<div class="grid2"><div class="box">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <b>${esc(c.code)} 진행 현황</b>
+      <span>대결 대기 <b>${c.queue.waiting}</b> / 접속 <b>${c.queue.online}</b>명</span>
+      <span class="row"><button class="primary" id="fm">지금 대기 중인 학생끼리 매칭</button>
+      <button class="danger" id="rc">반 전체 초기화</button><button class="danger" id="dc">반 삭제</button></span></div>
+    <p class="muted">접속한 학생이 모두 '대결 대기'가 되면 자동으로 무작위 매칭돼요. 결석이나 늦는 학생 때문에 기다려야 하면 위 매칭 버튼을 누르세요. 인원이 홀수면 한 명은 연습 로봇과 대결해요.</p>
+    <table><thead><tr><th>번호</th><th>접속</th><th>단계</th><th>카드</th><th>판</th><th>전적</th><th>대결 상황</th><th></th></tr></thead><tbody>
+    ${c.students.map(s => `<tr><td>${s.num}</td><td><span class="dot ${s.online?'on':''}"></span></td><td>${esc(s.stage)}${s.drought?' <span class="pill">가뭄 덱</span>':''}${s.wrong>=3?` <span class="pill">연속 오답 ${s.wrong}</span>`:''}</td>
+      <td>${s.cards}/18</td><td>${s.round}</td><td>${s.wins}승 ${s.losses}패 ${s.draws}무</td><td>${esc(s.battle||'')}</td>
+      <td><button class="danger" data-r="${s.num}">초기화</button></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="box"><b>대결 결과 기록</b>
+    <table style="margin-top:8px"><thead><tr><th>시각</th><th>대결</th><th>승자</th><th>턴</th><th>HP</th></tr></thead><tbody>
+    ${c.matches.map(m => `<tr><td>${new Date(m.time).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}</td><td>${esc(m.a)} vs ${esc(m.b)}</td><td>${esc(m.winner)}</td><td>${m.turns}</td><td>${esc(m.hp)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">아직 기록이 없어요.</td></tr>'}
+    </tbody></table></div></div>`;
+  $('#fm').onclick = () => act('tForceMatch', { code: c.code });
+  $('#rc').onclick = () => act('tResetClass', { code: c.code }, `${c.code} 학생 모두의 덱과 기록을 초기화할까요?`);
+  $('#dc').onclick = () => act('tDelete', { code: c.code }, `${c.code} 반을 삭제할까요? 학생들이 모두 나가게 돼요.`);
+  document.querySelectorAll('[data-r]').forEach(b => b.onclick = () => act('tResetStudent', { code: c.code, num: Number(b.dataset.r) }, `${b.dataset.r}번 학생을 처음부터 다시 시작하게 할까요?`));
+}
+</script>
+</body>
+</html>
