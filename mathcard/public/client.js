@@ -232,8 +232,7 @@ function renderBattle() {
       <div class="abs hand-op">${opHand}</div>
       <div class="abs slot slot-op">${opSlot}</div>
       <div class="abs note" style="top:42%">${rv ? rv.op.notes.map(esc).join(' · ') : ''}</div>
-      <div class="abs timerline" id="tline"><i id="tbar" style="width:${B.phase === 'choose' ? 100 : 0}%"></i></div>
-      <div class="abs tsec" id="tsec">${B.phase === 'choose' ? '' : ''}</div>
+      ${B.phase === 'choose' ? '<div class="abs tsec" id="tsec"></div>' : ''}
       <div class="abs turnlbl">${B.turn}턴${rv ? ' · 공개!' : ''}</div>
       ${B.phase === 'choose' && !me.chosen ? `<button class="abs btn usebtn" id="use" ${selected === null ? 'disabled' : ''}>사용하기</button>` : ''}
       <div class="abs slot slot-me">${meSlot}</div>
@@ -252,11 +251,10 @@ function renderBattle() {
   app.querySelectorAll('.hand-me .card.pick').forEach(el => el.onclick = () => { selected = Number(el.dataset.i); anim.drawnMe = true; renderBattle(); });
   const use = $('#use'); if (use) use.onclick = () => { if (selected !== null) socket.emit('choose', { index: selected }); };
   if (B.phase === 'choose') {
-    const end = Date.now() + B.remainingMs, total = CONFIG.TURN_SECONDS * 1000;
-    const tick = () => { const left = Math.max(0, end - Date.now()), bar = $('#tbar'), sec = $('#tsec'), line = $('#tline');
-      if (bar) bar.style.width = (left / total * 100) + '%'; if (sec) sec.textContent = Math.ceil(left / 1000);
-      if (line) line.classList.toggle('low', left < 5000); };
-    tick(); timerInt = setInterval(tick, 250);
+    const end = Date.now() + B.remainingMs; let shown = null;
+    const tick = () => { const sec = $('#tsec'); if (!sec) return; const n = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      if (n === shown) return; shown = n; sec.textContent = n; sec.classList.toggle('low', n <= 5); };
+    tick(); timerInt = setInterval(tick, 200);
   }
 }
 function renderResult() {
